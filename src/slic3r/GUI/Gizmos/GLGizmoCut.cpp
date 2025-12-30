@@ -2924,20 +2924,41 @@ void GLGizmoCut3D::render_profile_controls(CutConnectors &connectors)
         }
     }
 
+    ImGuiWrapper::push_combo_style(m_parent.get_scale());
     ImGui::AlignTextToFramePadding();
     m_imgui->text(m_labels_map["Profile"]);
     ImGui::SameLine(m_label_width);
-    if (render_combo(m_labels_map["Profile"], names, selection_idx, m_label_width, m_editing_window_width)) {
-        const std::string &selected_name = names[size_t(selection_idx)];
-        m_connector_profile_store.set_active_profile(selected_name, build_default_profile());
-        apply_profile_values(m_connector_profile_store.active_profile().values, connectors, m_connectors_editing && m_selected_count > 0);
-        update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+    ImGui::PushItemWidth(m_editing_window_width);
+
+    std::string preview = (selection_idx >= 0 && selection_idx < int(names.size())) ? names[size_t(selection_idx)] : m_connector_profile_store.active_profile().name;
+    if (ImGui::BBLBeginCombo("##connector_profile_combo", preview.c_str(), 0)) {
+        size_t selection_out = size_t(selection_idx);
+        for (size_t line_idx = 0; line_idx < names.size(); ++line_idx) {
+            ImGui::PushID(int(line_idx));
+            const bool selected = line_idx == size_t(selection_idx);
+            if (ImGui::Selectable("", selected))
+                selection_out = line_idx;
+            ImGui::SameLine();
+            ImGui::Text("%s", names[line_idx].c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+
+        if (selection_out != size_t(selection_idx)) {
+            selection_idx = int(selection_out);
+            const std::string &selected_name = names[selection_out];
+            m_connector_profile_store.set_active_profile(selected_name, build_default_profile());
+            apply_profile_values(m_connector_profile_store.active_profile().values, connectors, m_connectors_editing && m_selected_count > 0);
+            update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+        }
     }
+    ImGui::PopItemWidth();
+    ImGuiWrapper::pop_combo_style();
 
     ImGui::AlignTextToFramePadding();
     m_imgui->text(_L("Name"));
     ImGui::SameLine(m_label_width);
-    ImGui::PushItemWidth(m_editing_window_width - m_label_width);
+    ImGui::PushItemWidth(m_editing_window_width);
     ImGui::InputText("##connector_profile_name", m_profile_name_buffer.data(), m_profile_name_buffer.size());
     ImGui::PopItemWidth();
 
