@@ -86,6 +86,7 @@ set(SLIC3R_GUI_SOURCES
     GUI/CloneDialog.hpp
     GUI/ConfigManipulation.cpp
     GUI/ConfigManipulation.hpp
+    GUI/ConnectorProfileStore.cpp
     GUI/ConfigWizard.cpp
     GUI/ConfigWizard.hpp
     GUI/ConfigWizard_private.hpp

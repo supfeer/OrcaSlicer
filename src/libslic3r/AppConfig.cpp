@@ -674,6 +674,11 @@ std::string AppConfig::load()
                 for (auto& j_model : it.value()) {
                     m_printer_settings[j_model["machine"].get<std::string>()] = j_model;
                 }
+            } else if (it.key() == "cut_connectors") {
+                if (it.value().contains("profiles") && (it.value()["profiles"].is_array() || it.value()["profiles"].is_object()))
+                    m_storage[it.key()]["profiles"] = it.value()["profiles"].dump();
+                if (it.value().contains("last_profile") && it.value()["last_profile"].is_string())
+                    m_storage[it.key()]["last_profile"] = it.value()["last_profile"].get<std::string>();
             } else if (it.key() == "local_machines") {
                 for (auto m = it.value().begin(); m != it.value().end(); ++m) {
                     const auto&    p = m.value();
@@ -838,6 +843,22 @@ void AppConfig::save()
                 }
             }
             j["presets"]["filaments"] = j_filament_array;
+            continue;
+        } else if (category.first == "cut_connectors") {
+            auto profiles_it = category.second.find("profiles");
+            if (profiles_it != category.second.end() && !profiles_it->second.empty()) {
+                try {
+                    json profiles_json = json::parse(profiles_it->second);
+                    j["cut_connectors"]["profiles"] = profiles_json;
+                } catch (const std::exception &) {
+                    BOOST_LOG_TRIVIAL(warning) << "Skip saving connector profiles because profiles json is invalid.";
+                }
+            }
+
+            auto last_profile_it = category.second.find("last_profile");
+            if (last_profile_it != category.second.end())
+                j["cut_connectors"]["last_profile"] = last_profile_it->second;
+
             continue;
         }
         for (const auto& kvp : category.second) {
