@@ -962,6 +962,13 @@ void Tab::update_changed_ui()
     });
     // BBS:
     update_undo_buttons();
+
+    if (!m_presets->current_is_dirty() && m_presets->saved_is_dirty()) {
+        m_presets->update_saved_preset_from_current_preset();
+        m_presets->update_dirty();
+        update_undo_buttons();
+        update_preset_choice();
+    }
 }
 
 bool Tab::can_save_single_option() const
@@ -988,7 +995,12 @@ void Tab::save_single_option(const std::string& opt_id)
 
     selected.save(parent ? &const_cast<Preset*>(parent)->config : nullptr);
     m_presets->update_dirty();
+
+    if (!m_presets->current_is_dirty())
+        m_presets->update_saved_preset_from_current_preset();
+
     update_changed_ui();
+    update_preset_choice();
 }
 
 template<class T>
