@@ -2,9 +2,11 @@
 #define slic3r_GLGizmoCut_hpp_
 
 #include "GLGizmoBase.hpp"
+#include <array>
 #include "slic3r/GUI/GLSelectionRectangle.hpp"
 #include "slic3r/GUI/GLModel.hpp"
 #include "slic3r/GUI/I18N.hpp"
+#include "slic3r/GUI/ConnectorProfileStore.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/CutUtils.hpp"
@@ -151,6 +153,10 @@ class GLGizmoCut3D : public GLGizmoBase
     int  m_selected_count{ 0 };
 
     GLSelectionRectangle m_selection_rectangle;
+
+    ConnectorProfileStore m_connector_profile_store;
+    bool                  m_profiles_initialized{ false };
+    std::array<char, 128> m_profile_name_buffer{};
 
     std::vector<size_t> m_invalid_connectors_idxs;
     bool m_was_cut_plane_dragged { false };
@@ -302,7 +308,7 @@ protected:
     void render_groove_float_input(const std::string &label, float &in_val, const float &init_val, float &in_tolerance);
     void render_groove_angle_input(const std::string &label, float &in_val, const float &init_val, float min_val, float max_val);
     bool render_angle_input(const std::string& label, float& in_val, const float& init_val, float min_val, float max_val);
-    void render_snap_specific_input(const std::string& label, const wxString& tooltip, float& in_val, const float& init_val, const float min_val, const float max_val);
+    bool render_snap_specific_input(const std::string& label, const wxString& tooltip, float& in_val, const float& init_val, const float min_val, const float max_val);
     void render_cut_plane_input_window(CutConnectors &connectors, float x, float y, float bottom_limit);
     void init_input_window_data(CutConnectors &connectors);
     void render_input_window_warning() const;
@@ -373,6 +379,14 @@ private:
     void validate_connector_settings();
     bool process_cut_line(SLAGizmoEventType action, const Vec2d& mouse_position);
     void check_and_update_connectors_state();
+    void ensure_profiles_initialized(CutConnectors &connectors);
+    ConnectorProfile      build_default_profile() const;
+    ConnectorProfileValues current_profile_values() const;
+    void apply_profile_values(const ConnectorProfileValues &values, CutConnectors &connectors, bool apply_to_selection);
+    void render_profile_controls(CutConnectors &connectors);
+    void update_profile_from_inputs();
+    void update_profile_name_buffer(const std::string &name);
+    bool has_defined_connector_values() const;
 
     void toggle_model_objects_visibility();
 

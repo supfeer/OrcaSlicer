@@ -4,6 +4,7 @@
 #include <GL/glew.h>
 
 #include <algorithm>
+#include <cctype>
 
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/Plater.hpp"
@@ -17,6 +18,7 @@
 #include "slic3r/GUI/Field.hpp"
 #include "slic3r/GUI/MsgDialog.hpp"
 #include "FixModelByWin10.hpp"
+#include <cstring>
 
 namespace Slic3r {
 namespace GUI {
@@ -226,6 +228,7 @@ GLGizmoCut3D::GLGizmoCut3D(GLCanvas3D& parent, const std::string& icon_filename,
         {"Groove Angle" , _u8L("Groove Angle")},
         {"Cut position" , _u8L("Cut position")}, // ORCA
         {"Build Volume" , _u8L("Build Volume")}, // ORCA
+        {"Profile"      , _u8L("Profile")},
     };
 
 //    update_connector_shape();
@@ -2254,6 +2257,9 @@ void GLGizmoCut3D::render_connectors_input_window(CutConnectors &connectors, flo
     }
     m_imgui->disabled_end();
 
+    bool profile_changed = false;
+    render_profile_controls(connectors);
+
     render_flip_plane_button(m_connectors_editing && connectors.empty());
 
     m_imgui->text(m_labels_map["Type"]);
@@ -2261,54 +2267,73 @@ void GLGizmoCut3D::render_connectors_input_window(CutConnectors &connectors, flo
     bool type_changed = render_connect_type_radio_button(CutConnectorType::Plug);
     type_changed     |= render_connect_type_radio_button(CutConnectorType::Dowel);
     type_changed     |= render_connect_type_radio_button(CutConnectorType::Snap);
-    if (type_changed)
+    if (type_changed) {
         apply_selected_connectors([this, &connectors] (size_t idx) { connectors[idx].attribs.type = CutConnectorType(m_connector_type); });
+        profile_changed = true;
+    }
     ImGuiWrapper::pop_radio_style();
 
     m_imgui->disabled_begin(m_connector_type != CutConnectorType::Plug);
         if (type_changed && m_connector_type == CutConnectorType::Dowel) {
             m_connector_style = int(CutConnectorStyle::Prism);
             apply_selected_connectors([this, &connectors](size_t idx) { connectors[idx].attribs.style = CutConnectorStyle(m_connector_style); });
+            profile_changed = true;
         }
-        if (render_combo(m_labels_map["Style"], m_connector_styles, m_connector_style, m_label_width, m_editing_window_width))
+        if (render_combo(m_labels_map["Style"], m_connector_styles, m_connector_style, m_label_width, m_editing_window_width)) {
             apply_selected_connectors([this, &connectors](size_t idx) { connectors[idx].attribs.style = CutConnectorStyle(m_connector_style); });
+            profile_changed = true;
+        }
     m_imgui->disabled_end();
 
     m_imgui->disabled_begin(m_connector_type == CutConnectorType::Snap);
         if (type_changed && m_connector_type == CutConnectorType::Snap) {
             m_connector_shape_id = int(CutConnectorShape::Circle);
             apply_selected_connectors([this, &connectors](size_t idx) { connectors[idx].attribs.shape = CutConnectorShape(m_connector_shape_id); });
+            profile_changed = true;
         }
-        if (render_combo(m_labels_map["Shape"], m_connector_shapes, m_connector_shape_id, m_label_width, m_editing_window_width))
+        if (render_combo(m_labels_map["Shape"], m_connector_shapes, m_connector_shape_id, m_label_width, m_editing_window_width)) {
             apply_selected_connectors([this, &connectors](size_t idx) { connectors[idx].attribs.shape = CutConnectorShape(m_connector_shape_id); });
+            profile_changed = true;
+        }
     m_imgui->disabled_end();
 
     const float depth_min_value = m_connector_type == CutConnectorType::Snap ? m_connector_size : -0.1f;
-    if (render_slider_double_input(m_labels_map["Depth"], m_connector_depth_ratio, m_connector_depth_ratio_tolerance, depth_min_value))
+    if (render_slider_double_input(m_labels_map["Depth"], m_connector_depth_ratio, m_connector_depth_ratio_tolerance, depth_min_value)) {
         apply_selected_connectors([this, &connectors](size_t idx) {
             if (m_connector_depth_ratio > 0)
                 connectors[idx].height           = m_connector_depth_ratio;
             if (m_connector_depth_ratio_tolerance >= 0)
                 connectors[idx].height_tolerance = m_connector_depth_ratio_tolerance;
         });
+        profile_changed = true;
+    }
 
-    if (render_slider_double_input(m_labels_map["Size"], m_connector_size, m_connector_size_tolerance))
+    if (render_slider_double_input(m_labels_map["Size"], m_connector_size, m_connector_size_tolerance)) {
         apply_selected_connectors([this, &connectors](size_t idx) {
             if (m_connector_size > 0)
                 connectors[idx].radius           = 0.5f * m_connector_size;
             if (m_connector_size_tolerance >= 0)
                 connectors[idx].radius_tolerance = 0.5f * m_connector_size_tolerance;
         });
+        profile_changed = true;
+    }
 
-    if (render_angle_input(m_labels_map["Rotation"], m_connector_angle, 0.f, 0.f, 180.f))
+    if (render_angle_input(m_labels_map["Rotation"], m_connector_angle, 0.f, 0.f, 180.f)) {
         apply_selected_connectors([this, &connectors](size_t idx) {
             connectors[idx].z_angle = m_connector_angle;
         });
+        profile_changed = true;
+    }
 
     if (m_connector_type == CutConnectorType::Snap) {
-        render_snap_specific_input(_u8L("Bulge"), _L("Bulge proportion related to radius"), m_snap_bulge_proportion, 0.15f, 5.f, 100.f * m_snap_space_proportion);
-        render_snap_specific_input(_u8L("Space"), _L("Space proportion related to radius"), m_snap_space_proportion, 0.3f, 10.f, 50.f);
+        if (render_snap_specific_input(_u8L("Bulge"), _L("Bulge proportion related to radius"), m_snap_bulge_proportion, 0.15f, 5.f, 100.f * m_snap_space_proportion))
+            profile_changed = true;
+        if (render_snap_specific_input(_u8L("Space"), _L("Space proportion related to radius"), m_snap_space_proportion, 0.3f, 10.f, 50.f))
+            profile_changed = true;
     }
+
+    if (profile_changed)
+        update_profile_from_inputs();
 
     ImGui::Separator();
 
@@ -2587,7 +2612,7 @@ void GLGizmoCut3D::render_groove_angle_input(const std::string& label, float& in
     }
 }
 
-void GLGizmoCut3D::render_snap_specific_input(const std::string& label, const wxString& tooltip, float& in_val, const float& init_val, const float min_val, const float max_val)
+bool GLGizmoCut3D::render_snap_specific_input(const std::string& label, const wxString& tooltip, float& in_val, const float& init_val, const float min_val, const float max_val)
 {
     // -------- [ ]
     // slider_with + item_in_gap + input_width
@@ -2632,6 +2657,8 @@ void GLGizmoCut3D::render_snap_specific_input(const std::string& label, const wx
         update_connector_shape();
         update_raycasters_for_picking();
     }
+
+    return is_changed;
 }
 
 void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, float x, float y, float bottom_limit)
@@ -2792,8 +2819,165 @@ void GLGizmoCut3D::validate_connector_settings()
         m_connector_shape_id = int(CutConnectorShape::Circle);
 }
 
+ConnectorProfile GLGizmoCut3D::build_default_profile() const
+{
+    return ConnectorProfile{ ConnectorProfileStore::default_profile_name(), current_profile_values() };
+}
+
+ConnectorProfileValues GLGizmoCut3D::current_profile_values() const
+{
+    ConnectorProfileValues values;
+    values.type                  = m_connector_type;
+    values.style                 = m_connector_style;
+    values.shape                 = m_connector_shape_id;
+    values.depth                 = m_connector_depth_ratio;
+    values.depth_tolerance       = m_connector_depth_ratio_tolerance;
+    values.size                  = m_connector_size;
+    values.size_tolerance        = m_connector_size_tolerance;
+    values.angle                 = m_connector_angle;
+    values.snap_bulge_proportion = m_snap_bulge_proportion;
+    values.snap_space_proportion = m_snap_space_proportion;
+    return values;
+}
+
+bool GLGizmoCut3D::has_defined_connector_values() const
+{
+    return m_connector_type != CutConnectorType::Undef &&
+           m_connector_style != int(CutConnectorStyle::Undef) &&
+           m_connector_shape_id != int(CutConnectorShape::Undef) &&
+           m_connector_depth_ratio >= 0.f &&
+           m_connector_depth_ratio_tolerance >= 0.f &&
+           m_connector_size >= 0.f &&
+           m_connector_size_tolerance >= 0.f &&
+           m_connector_angle >= 0.f && m_connector_angle <= float(PI);
+}
+
+void GLGizmoCut3D::update_profile_name_buffer(const std::string &name)
+{
+    std::fill(m_profile_name_buffer.begin(), m_profile_name_buffer.end(), '\0');
+    std::strncpy(m_profile_name_buffer.data(), name.c_str(), m_profile_name_buffer.size() - 1);
+}
+
+void GLGizmoCut3D::ensure_profiles_initialized(CutConnectors &connectors)
+{
+    if (m_profiles_initialized)
+        return;
+
+    m_profiles_initialized = true;
+    m_connector_profile_store.set_config(wxGetApp().app_config);
+    ConnectorProfile fallback = build_default_profile();
+    m_connector_profile_store.load(fallback);
+    update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+    apply_profile_values(m_connector_profile_store.active_profile().values, connectors, false);
+}
+
+void GLGizmoCut3D::apply_profile_values(const ConnectorProfileValues &values, CutConnectors &connectors, bool apply_to_selection)
+{
+    m_connector_type                  = values.type;
+    m_connector_style                 = values.style;
+    m_connector_shape_id              = values.shape;
+    m_connector_depth_ratio           = values.depth;
+    m_connector_depth_ratio_tolerance = values.depth_tolerance;
+    m_connector_size                  = values.size;
+    m_connector_size_tolerance        = values.size_tolerance;
+    m_connector_angle                 = values.angle;
+    m_snap_bulge_proportion           = values.snap_bulge_proportion;
+    m_snap_space_proportion           = values.snap_space_proportion;
+
+    validate_connector_settings();
+    update_connector_shape();
+
+    if (apply_to_selection && m_connectors_editing && m_selected_count > 0) {
+        apply_selected_connectors([this, &connectors](size_t idx) {
+            connectors[idx].attribs.type   = m_connector_type;
+            connectors[idx].attribs.style  = CutConnectorStyle(m_connector_style);
+            connectors[idx].attribs.shape  = CutConnectorShape(m_connector_shape_id);
+            connectors[idx].height         = m_connector_depth_ratio;
+            connectors[idx].height_tolerance = m_connector_depth_ratio_tolerance;
+            connectors[idx].radius           = 0.5f * m_connector_size;
+            connectors[idx].radius_tolerance = 0.5f * m_connector_size_tolerance;
+            connectors[idx].z_angle          = m_connector_angle;
+        });
+        check_and_update_connectors_state();
+    }
+}
+
+void GLGizmoCut3D::update_profile_from_inputs()
+{
+    if (!m_profiles_initialized || !has_defined_connector_values())
+        return;
+
+    m_connector_profile_store.update_active_values(current_profile_values());
+    update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+}
+
+void GLGizmoCut3D::render_profile_controls(CutConnectors &connectors)
+{
+    ensure_profiles_initialized(connectors);
+
+    std::vector<std::string> names = m_connector_profile_store.profile_names();
+    int selection_idx = 0;
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (names[i] == m_connector_profile_store.active_profile().name) {
+            selection_idx = int(i);
+            break;
+        }
+    }
+
+    ImGui::AlignTextToFramePadding();
+    m_imgui->text(m_labels_map["Profile"]);
+    ImGui::SameLine(m_label_width);
+    if (render_combo(m_labels_map["Profile"], names, selection_idx, m_label_width, m_editing_window_width)) {
+        const std::string &selected_name = names[size_t(selection_idx)];
+        m_connector_profile_store.set_active_profile(selected_name, build_default_profile());
+        apply_profile_values(m_connector_profile_store.active_profile().values, connectors, m_connectors_editing && m_selected_count > 0);
+        update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+    }
+
+    ImGui::AlignTextToFramePadding();
+    m_imgui->text(_L("Name"));
+    ImGui::SameLine(m_label_width);
+    ImGui::PushItemWidth(m_editing_window_width - m_label_width);
+    ImGui::InputText("##connector_profile_name", m_profile_name_buffer.data(), m_profile_name_buffer.size());
+    ImGui::PopItemWidth();
+
+    auto trim = [](std::string value) {
+        auto is_not_space = [](unsigned char ch) { return !std::isspace(ch); };
+        value.erase(value.begin(), std::find_if(value.begin(), value.end(), is_not_space));
+        value.erase(std::find_if(value.rbegin(), value.rend(), is_not_space).base(), value.end());
+        return value;
+    };
+
+    const std::string name_input = trim(std::string(m_profile_name_buffer.data()));
+    const bool has_name = !name_input.empty();
+
+    m_imgui->disabled_begin(!has_name);
+    if (m_imgui->button(_L("Save"))) {
+        m_connector_profile_store.save_profile(name_input, current_profile_values());
+        update_profile_name_buffer(name_input);
+    }
+    m_imgui->disabled_end();
+
+    ImGui::SameLine();
+    if (m_imgui->button(_L("Update")))
+        update_profile_from_inputs();
+
+    ImGui::SameLine();
+    const bool can_delete = m_connector_profile_store.profiles().size() > 1 && m_connector_profile_store.active_profile().name != ConnectorProfileStore::default_profile_name();
+    m_imgui->disabled_begin(!can_delete);
+    if (m_imgui->button(_L("Delete"))) {
+        if (m_connector_profile_store.delete_profile(m_connector_profile_store.active_profile().name, build_default_profile())) {
+            apply_profile_values(m_connector_profile_store.active_profile().values, connectors, false);
+            update_profile_name_buffer(m_connector_profile_store.active_profile().name);
+        }
+    }
+    m_imgui->disabled_end();
+}
+
 void GLGizmoCut3D::init_input_window_data(CutConnectors &connectors)
 {
+    ensure_profiles_initialized(connectors);
+
     m_imperial_units = wxGetApp().app_config->get_bool("use_inches");
     m_control_width  = m_imgui->get_font_size() * 9.f;
 
