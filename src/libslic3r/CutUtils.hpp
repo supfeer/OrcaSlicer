@@ -22,6 +22,7 @@ class Cut {
     int                         m_instance;
     const Transform3d           m_cut_matrix;
     ModelObjectCutAttributes    m_attributes;
+    std::vector<Vec2d>          m_cut_mask;
 
     void post_process(ModelObject* object, ModelObjectPtrs& objects, bool keep, bool place_on_cut, bool flip);
     void post_process(ModelObject* upper_object, ModelObject* lower_object, ModelObjectPtrs& objects);
@@ -29,10 +30,11 @@ class Cut {
 
 public:
 
-    Cut(const ModelObject* object, int instance, const Transform3d& cut_matrix, 
+    Cut(const ModelObject* object, int instance, const Transform3d& cut_matrix,
         ModelObjectCutAttributes attributes = ModelObjectCutAttribute::KeepUpper |
                                               ModelObjectCutAttribute::KeepLower |
-                                              ModelObjectCutAttribute::KeepAsParts );
+                                              ModelObjectCutAttribute::KeepAsParts,
+        std::vector<Vec2d> cut_mask = {});
     ~Cut() { m_model.clear_objects(); }
 
     struct Groove
