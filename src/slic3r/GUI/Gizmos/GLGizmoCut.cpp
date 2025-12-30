@@ -2714,7 +2714,7 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
             ImGui::AlignTextToFramePadding();
             m_imgui->text(_u8L("Polyline points"));
             ImGui::SameLine(m_label_width);
-            m_imgui->text("%zu", m_arbitrary_path.size());
+            m_imgui->text(wxString::Format("%zu", m_arbitrary_path.size()));
 
             add_vertical_scaled_interval(0.75f);
             const std::string draw_label = m_arbitrary_editing ? _u8L("Finish polyline") : _u8L("Draw polyline");
@@ -3639,7 +3639,7 @@ void GLGizmoCut3D::update_arbitrary_polyline()
     const size_t count = m_arbitrary_path.size();
     for (size_t i = 0; i < count; ++i) {
         const Vec3d world_pt = arbitrary_point_to_world(m_arbitrary_path[i]);
-        init_data.add_vertex(world_pt.cast<float>());
+        init_data.add_vertex(Vec3f(world_pt.cast<float>()));
     }
 
     for (size_t i = 0; i < count - 1; ++i)
