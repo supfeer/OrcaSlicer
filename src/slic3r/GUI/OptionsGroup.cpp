@@ -119,6 +119,10 @@ const t_field& OptionsGroup::build_field(const t_config_option_key& id, const Co
 		if (!this->m_disabled)
 			this->back_to_sys_value(opt_id);
 	};
+    field->m_save_to_preset = [this](std::string opt_id) {
+        if (!this->m_disabled)
+            this->save_to_preset(opt_id);
+    };
 
 	// assign function objects for callbacks, etc.
     return field;
@@ -678,6 +682,13 @@ void ConfigOptionsGroup::back_to_sys_value(const std::string& opt_key)
 	if (!have_sys_config())
 		return;
 	back_to_config_value(m_get_sys_config(), opt_key);
+}
+
+void ConfigOptionsGroup::save_to_preset(const std::string& opt_key)
+{
+    if (!m_save_value_to_preset)
+        return;
+    m_save_value_to_preset(opt_key);
 }
 
 void ConfigOptionsGroup::back_to_config_value(const DynamicPrintConfig& config, const std::string& opt_key)

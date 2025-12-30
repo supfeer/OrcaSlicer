@@ -211,6 +211,12 @@ void Field::on_back_to_sys_value()
 		m_back_to_sys_value(m_opt_id);
 }
 
+void Field::on_save_to_preset()
+{
+	if (m_save_to_preset != nullptr && m_is_modified_value)
+		m_save_to_preset(m_opt_id);
+}
+
 void Field::on_edit_value()
 {
     if (m_fn_edit_value)

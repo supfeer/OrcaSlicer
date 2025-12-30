@@ -265,6 +265,7 @@ void Tab::create_preset_tab()
     m_bmp_non_system = &m_bmp_white_bullet;
     // Bitmaps to be shown on the "Undo user changes" button next to each input field.
     add_scaled_bitmap(this, m_bmp_value_revert, "undo");
+    add_scaled_bitmap(this, m_bmp_value_save,   "save");
     add_scaled_bitmap(this, m_bmp_white_bullet, "dot");
     // Bitmap to be shown on the "edit" button before to each editable input field.
     add_scaled_bitmap(this, m_bmp_edit_value, "edit");
@@ -780,6 +781,7 @@ void Tab::update_label_colours()
 
 void Tab::decorate()
 {
+    const bool can_save_values = can_save_single_option();
     for (const auto& opt : m_options_list)
     {
         Field*      field = nullptr;
@@ -859,6 +861,8 @@ void Tab::decorate()
             }
 
         }
+        const ScalableBitmap* save_icon = (is_modified_value && can_save_values) ? &m_bmp_value_save : nullptr;
+        const wxString*       save_tt   = save_icon ? &m_tt_value_save : nullptr;
 
         if (option_without_field) {
             if (Line* line = get_line(opt.first)) {
@@ -866,6 +870,8 @@ void Tab::decorate()
                 line->set_undo_to_sys_bitmap(sys_icon);
                 line->set_undo_tooltip(tt);
                 line->set_undo_to_sys_tooltip(sys_tt);
+                line->set_save_bitmap(save_icon);
+                line->set_save_tooltip(save_tt);
                 line->set_label_colour(color);
             }
             continue;
@@ -878,6 +884,8 @@ void Tab::decorate()
         field->set_undo_to_sys_bitmap(sys_icon);
         field->set_undo_tooltip(tt);
         field->set_undo_to_sys_tooltip(sys_tt);
+        field->set_save_bitmap(save_icon);
+        field->set_save_tooltip(save_tt);
         field->set_label_colour(color);
 
         if (field->has_edit_ui())
@@ -954,6 +962,33 @@ void Tab::update_changed_ui()
     });
     // BBS:
     update_undo_buttons();
+}
+
+bool Tab::can_save_single_option() const
+{
+    if (m_presets == nullptr || m_presets->get_selected_idx() == size_t(-1))
+        return false;
+    const Preset& selected = m_presets->get_selected_preset();
+    return !selected.is_default && !selected.is_system && !selected.is_project_embedded;
+}
+
+void Tab::save_single_option(const std::string& opt_id)
+{
+    if (!can_save_single_option() || opt_id.empty())
+        return;
+
+    t_config_option_keys keys{ opt_id };
+
+    Preset&       selected = m_presets->get_selected_preset();
+    Preset&       edited   = m_presets->get_edited_preset();
+    const Preset* parent   = m_presets->get_selected_preset_parent();
+
+    selected.config.apply_only(edited.config, keys, true);
+    m_presets->update_saved_preset_option(opt_id);
+
+    selected.save(parent ? &const_cast<Preset*>(parent)->config : nullptr);
+    m_presets->update_dirty();
+    update_changed_ui();
 }
 
 template<class T>
@@ -7055,6 +7090,7 @@ void Tab::set_tooltips_text()
     // Text to be shown on the "Undo user changes" button next to each input field.
     //m_tt_white_bullet =		_(L("WHITE BULLET icon indicates that the value is the same as in the last saved preset."));
     m_tt_value_revert =		_(L("Click to drop current modify and reset to saved value."));
+    m_tt_value_save   =        _(L("Click to save the current value into the active preset."));
 }
 
 //BBS: GUI refactor
@@ -7249,6 +7285,9 @@ ConfigOptionsGroupShp Page::new_optgroup(const wxString &title, const wxString &
             static_cast<Tab*>(tab)->update_dirty();
             static_cast<Tab*>(tab)->on_value_change(opt_key, value);
 //!        });
+    };
+    optgroup->m_save_value_to_preset = [tab](const std::string& opt_id) {
+        static_cast<Tab*>(tab)->save_single_option(opt_id);
     };
 
     optgroup->m_get_initial_config = [tab]() {
