@@ -453,8 +453,8 @@ msgstr "Сбросить ломаную"
 msgid "Left click on the cut plane adds points. Right click removes the last point."
 msgstr "Левая кнопка на плоскости реза добавляет точки. Правая кнопка удаляет последнюю точку."
 
-msgid "Define at least three points for the polyline cut."
-msgstr "Укажите минимум три точки для ломаной линии реза."
+msgid "Define at least two points for the polyline cut."
+msgstr "Укажите минимум две точки для ломаной линии реза."
 
 msgid "Auto"
 msgstr "Авто"

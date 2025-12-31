@@ -2930,7 +2930,7 @@ void GLGizmoCut3D::render_input_window_warning() const
     else if (!has_valid_groove())
         m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _L("Cut plane with groove is invalid"));
     else if (CutMode(m_mode) == CutMode::cutArbitrary && !has_valid_arbitrary_path())
-        m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _u8L("Define at least three points for the polyline cut."));
+        m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _u8L("Define at least two points for the polyline cut."));
 }
 
 void GLGizmoCut3D::on_render_input_window(float x, float y, float bottom_limit)
@@ -3388,7 +3388,8 @@ void GLGizmoCut3D::perform_cut(const Selection& selection)
         int dowels_count = 0;
         const bool has_connectors = !mo->cut_connectors.empty();
         const bool cut_with_mask = CutMode(m_mode) == CutMode::cutArbitrary && has_valid_arbitrary_path();
-        const std::vector<Vec2d> cut_mask = cut_with_mask ? get_arbitrary_mask() : std::vector<Vec2d>();
+        const double band_width = 2.0 * m_transformed_bounding_box.radius();
+        const std::vector<Vec2d> cut_mask = cut_with_mask ? get_arbitrary_mask(band_width) : std::vector<Vec2d>();
         // update connectors pos as offset of its center before cut performing
         apply_connectors_in_model(cut_mo , dowels_count);
 
@@ -3611,12 +3612,30 @@ void GLGizmoCut3D::clear_arbitrary_path()
 
 bool GLGizmoCut3D::has_valid_arbitrary_path() const
 {
-    return m_arbitrary_path.size() >= 3;
+    return m_arbitrary_path.size() >= 2;
 }
 
-std::vector<Vec2d> GLGizmoCut3D::get_arbitrary_mask() const
+std::vector<Vec2d> GLGizmoCut3D::get_arbitrary_mask(double band_width) const
 {
-    std::vector<Vec2d> mask = m_arbitrary_path;
+    if (m_arbitrary_path.size() >= 3)
+        return m_arbitrary_path;
+
+    std::vector<Vec2d> mask;
+    if (m_arbitrary_path.size() >= 2) {
+        const Vec2d& p0 = m_arbitrary_path.front();
+        const Vec2d& p1 = m_arbitrary_path.back();
+        Vec2d dir = p1 - p0;
+        if (dir.norm() < EPSILON)
+            return mask;
+        dir.normalize();
+        const Vec2d perp(-dir.y(), dir.x());
+        const Vec2d offset = perp * band_width;
+
+        mask.push_back(p0 + offset);
+        mask.push_back(p1 + offset);
+        mask.push_back(p1 - offset);
+        mask.push_back(p0 - offset);
+    }
     return mask;
 }
 

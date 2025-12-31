@@ -359,7 +359,7 @@ private:
     void update_arbitrary_polyline();
     void clear_arbitrary_path();
     bool has_valid_arbitrary_path() const;
-    std::vector<Vec2d> get_arbitrary_mask() const;
+    std::vector<Vec2d> get_arbitrary_mask(double band_width) const;
     Vec3d arbitrary_point_to_world(const Vec2d& local) const;
 
     void apply_color_clip_plane_colors();
