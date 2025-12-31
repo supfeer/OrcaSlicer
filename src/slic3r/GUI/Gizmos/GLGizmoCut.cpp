@@ -190,6 +190,7 @@ GLGizmoCut3D::GLGizmoCut3D(GLCanvas3D& parent, const std::string& icon_filename,
 {
     m_modes = { _u8L("Planar"), _u8L("Dovetail")//, _u8L("Grid")
 //              , _u8L("Radial"), _u8L("Modular")
+        , _u8L("Arbitrary")
     };
 
     m_connector_modes = { _u8L("Auto"), _u8L("Manual") };
@@ -476,6 +477,8 @@ void GLGizmoCut3D::update_clipper()
     m_c->object_clipper()->set_range_and_pos(normal, offset, dist);
 
     put_connectors_on_cut_plane(normal, offset);
+    if (CutMode(m_mode) == CutMode::cutArbitrary && !m_arbitrary_path.empty())
+        update_arbitrary_polyline();
 
     if (m_raycasters.empty())
         on_register_raycasters_for_picking();
@@ -493,6 +496,10 @@ void GLGizmoCut3D::set_center(const Vec3d& center, bool update_tbb /*=false*/)
 void GLGizmoCut3D::switch_to_mode(size_t new_mode)
 {
     m_mode = new_mode;
+    if (CutMode(m_mode) != CutMode::cutArbitrary) {
+        m_arbitrary_editing = false;
+        clear_arbitrary_path();
+    }
     update_raycasters_for_picking();
 
     apply_color_clip_plane_colors();
@@ -500,6 +507,8 @@ void GLGizmoCut3D::switch_to_mode(size_t new_mode)
         m_contour_width = CutMode(m_mode) == CutMode::cutTongueAndGroove ? 0.f : 0.4f;
         oc->set_behavior(m_connectors_editing, m_connectors_editing, double(m_contour_width));
     }
+    if (CutMode(m_mode) == CutMode::cutArbitrary)
+        m_connectors_editing = false;
 
     update_plane_model();
     reset_cut_by_contours();
@@ -2169,6 +2178,11 @@ void GLGizmoCut3D::on_render()
         render_cut_plane_grabbers();
     }
 
+    if (CutMode(m_mode) == CutMode::cutArbitrary && m_arbitrary_polyline.is_initialized()) {
+        const ColorRGBA color = has_valid_arbitrary_path() ? ColorRGBA::YELLOW() : CUT_PLANE_ERR_COLOR;
+        render_line(m_arbitrary_polyline, color, wxGetApp().plater()->get_camera().get_view_matrix(), 2.f);
+    }
+
     render_cut_line();
 
     m_selection_rectangle.render(m_parent);
@@ -2356,6 +2370,8 @@ void GLGizmoCut3D::reset_cut_plane()
     m_ar_plane_center  = m_plane_center;
 
     reset_cut_by_contours();
+    if (CutMode(m_mode) == CutMode::cutArbitrary)
+        clear_arbitrary_path();
     m_parent.request_extra_frame();
 }
 
@@ -2638,8 +2654,8 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
 {
 //    if (m_mode == size_t(CutMode::cutPlanar)) {
     CutMode mode = CutMode(m_mode);
-    if (mode == CutMode::cutPlanar || mode == CutMode::cutTongueAndGroove) {
-        const bool has_connectors = !connectors.empty();
+    if (mode == CutMode::cutPlanar || mode == CutMode::cutTongueAndGroove || mode == CutMode::cutArbitrary) {
+        const bool has_connectors = mode == CutMode::cutPlanar && !connectors.empty();
 
         m_imgui->disabled_begin(has_connectors);
         if (render_cut_mode_combo())
@@ -2692,6 +2708,30 @@ void GLGizmoCut3D::render_cut_plane_input_window(CutConnectors &connectors, floa
             render_groove_float_input(m_labels_map["Width"], m_groove.width, m_groove.width_init, m_groove.width_tolerance);
             render_groove_angle_input(m_labels_map["Flap Angle"], m_groove.flaps_angle, m_groove.flaps_angle_init, 30.f, 120.f);
             render_groove_angle_input(m_labels_map["Groove Angle"], m_groove.angle, m_groove.angle_init, 0.f, 15.f);
+        }
+        else if (mode == CutMode::cutArbitrary) {
+            ImGui::Separator();
+            ImGui::AlignTextToFramePadding();
+            m_imgui->text(_u8L("Polyline points"));
+            ImGui::SameLine(m_label_width);
+            m_imgui->text(wxString::Format("%zu", m_arbitrary_path.size()));
+
+            add_vertical_scaled_interval(0.75f);
+            const std::string draw_label = m_arbitrary_editing ? _u8L("Finish polyline") : _u8L("Draw polyline");
+            if (m_imgui->button(draw_label)) {
+                m_arbitrary_editing = !m_arbitrary_editing;
+            }
+
+            ImGui::SameLine();
+            m_imgui->disabled_begin(m_arbitrary_path.empty());
+                if (m_imgui->button(_u8L("Reset polyline"))) {
+                    Plater::TakeSnapshot snapshot(wxGetApp().plater(), _u8L("Reset arbitrary cut path"), UndoRedo::SnapshotType::GizmoAction);
+                    clear_arbitrary_path();
+                }
+            m_imgui->disabled_end();
+
+            add_vertical_scaled_interval(0.25f);
+            m_imgui->text(_u8L("Left click on the cut plane adds points. Right click removes the last point."));
         }
 
         ImGui::Separator();
@@ -2889,6 +2929,8 @@ void GLGizmoCut3D::render_input_window_warning() const
         m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _L("Cut plane is placed out of object"));
     else if (!has_valid_groove())
         m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _L("Cut plane with groove is invalid"));
+    else if (CutMode(m_mode) == CutMode::cutArbitrary && !has_valid_arbitrary_path())
+        m_imgui->text(/*wxString(ImGui::WarningMarkerSmall)*/ _L("Warning") + ": " + _u8L("Define at least two points for the polyline cut."));
 }
 
 void GLGizmoCut3D::on_render_input_window(float x, float y, float bottom_limit)
@@ -3162,6 +3204,8 @@ bool GLGizmoCut3D::can_perform_cut() const
 
     if (CutMode(m_mode) == CutMode::cutTongueAndGroove)
         return has_valid_groove();
+    if (CutMode(m_mode) == CutMode::cutArbitrary)
+        return !m_arbitrary_editing && has_valid_arbitrary_path();
 
     if (m_part_selection.valid())
         return ! m_part_selection.is_one_object();
@@ -3214,7 +3258,7 @@ bool GLGizmoCut3D::has_valid_contour() const
 
 void GLGizmoCut3D::apply_connectors_in_model(ModelObject* mo, int &dowels_count)
 {
-    if (CutMode(m_mode) == CutMode::cutTongueAndGroove)
+    if (CutMode(m_mode) == CutMode::cutTongueAndGroove || CutMode(m_mode) == CutMode::cutArbitrary)
         return;
     if (m_connector_mode == CutConnectorMode::Manual) {
         clear_selection();
@@ -3333,7 +3377,7 @@ void GLGizmoCut3D::perform_cut(const Selection& selection)
         ScopeGuard part_selection_killer([this]() { m_part_selection = PartSelection(); });
 
         const bool cut_with_groove = CutMode(m_mode) == CutMode::cutTongueAndGroove;
-        const bool cut_by_contour = !cut_with_groove && m_part_selection.valid();
+        const bool cut_by_contour = !cut_with_groove && CutMode(m_mode) == CutMode::cutPlanar && m_part_selection.valid();
 
         ModelObject* cut_mo = cut_by_contour ? m_part_selection.model_object() : nullptr;
         if (cut_mo)
@@ -3343,6 +3387,9 @@ void GLGizmoCut3D::perform_cut(const Selection& selection)
 
         int dowels_count = 0;
         const bool has_connectors = !mo->cut_connectors.empty();
+        const bool cut_with_mask = CutMode(m_mode) == CutMode::cutArbitrary && has_valid_arbitrary_path();
+        const double band_width = 2.0 * m_transformed_bounding_box.radius();
+        const std::vector<Vec2d> cut_mask = cut_with_mask ? get_arbitrary_mask(band_width) : std::vector<Vec2d>();
         // update connectors pos as offset of its center before cut performing
         apply_connectors_in_model(cut_mo , dowels_count);
 
@@ -3361,7 +3408,7 @@ void GLGizmoCut3D::perform_cut(const Selection& selection)
         // update cut_id for the cut object in respect to the attributes
         update_object_cut_id(cut_mo->cut_id, attributes, dowels_count);
 
-        Cut cut(cut_mo, instance_idx, get_cut_matrix(selection), attributes);
+        Cut cut(cut_mo, instance_idx, get_cut_matrix(selection), attributes, cut_mask);
         const ModelObjectPtrs& new_objects = cut_by_contour    ? cut.perform_by_contour(m_part_selection.get_cut_parts(), dowels_count):
                                              cut_with_groove   ? cut.perform_with_groove(m_groove, m_rotation_m) :
                                                                  cut.perform_with_plane();
@@ -3545,6 +3592,82 @@ void GLGizmoCut3D::discard_cut_line_processing()
     m_line_beg = m_line_end = Vec3d::Zero();
 }
 
+bool GLGizmoCut3D::add_arbitrary_point(const Vec3d& world_pos)
+{
+    Vec3d local = m_rotation_m.inverse() * (world_pos - m_plane_center);
+    local[Z] = 0.0;
+    m_arbitrary_path.emplace_back(local.x(), local.y());
+    update_arbitrary_polyline();
+    m_parent.set_as_dirty();
+    return true;
+}
+
+void GLGizmoCut3D::clear_arbitrary_path()
+{
+    m_arbitrary_path.clear();
+    m_arbitrary_polyline.reset();
+    m_arbitrary_editing = false;
+    m_parent.set_as_dirty();
+}
+
+bool GLGizmoCut3D::has_valid_arbitrary_path() const
+{
+    return m_arbitrary_path.size() >= 2;
+}
+
+std::vector<Vec2d> GLGizmoCut3D::get_arbitrary_mask(double band_width) const
+{
+    if (m_arbitrary_path.size() >= 3)
+        return m_arbitrary_path;
+
+    std::vector<Vec2d> mask;
+    if (m_arbitrary_path.size() >= 2) {
+        const Vec2d& p0 = m_arbitrary_path.front();
+        const Vec2d& p1 = m_arbitrary_path.back();
+        Vec2d dir = p1 - p0;
+        if (dir.norm() < EPSILON)
+            return mask;
+        dir.normalize();
+        const Vec2d perp(-dir.y(), dir.x());
+        const Vec2d offset = perp * band_width;
+
+        mask.push_back(p0 + offset);
+        mask.push_back(p1 + offset);
+        mask.push_back(p1 - offset);
+        mask.push_back(p0 - offset);
+    }
+    return mask;
+}
+
+Vec3d GLGizmoCut3D::arbitrary_point_to_world(const Vec2d& local) const
+{
+    return m_plane_center + m_rotation_m * Vec3d(local.x(), local.y(), 0.0);
+}
+
+void GLGizmoCut3D::update_arbitrary_polyline()
+{
+    if (m_arbitrary_path.size() < 2) {
+        m_arbitrary_polyline.reset();
+        return;
+    }
+
+    m_arbitrary_polyline.reset();
+    GLModel::Geometry init_data;
+    init_data.format = { GLModel::Geometry::EPrimitiveType::Lines, GLModel::Geometry::EVertexLayout::P3 };
+
+    const size_t count = m_arbitrary_path.size();
+    for (size_t i = 0; i < count; ++i) {
+        const Vec3d world_pt = arbitrary_point_to_world(m_arbitrary_path[i]);
+        init_data.add_vertex(Vec3f(world_pt.cast<float>()));
+    }
+
+    for (size_t i = 0; i < count - 1; ++i)
+        init_data.add_line(static_cast<unsigned int>(i), static_cast<unsigned int>(i + 1));
+    init_data.add_line(static_cast<unsigned int>(count - 1), 0);
+
+    m_arbitrary_polyline.init_from(std::move(init_data));
+}
+
 bool GLGizmoCut3D::process_cut_line(SLAGizmoEventType action, const Vec2d& mouse_position)
 {
     const Camera& camera = wxGetApp().plater()->get_camera();
@@ -3713,6 +3836,24 @@ bool GLGizmoCut3D::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_posi
 {
     if (is_dragging() || m_connector_mode == CutConnectorMode::Auto)
         return false;
+
+    if (CutMode(m_mode) == CutMode::cutArbitrary && m_arbitrary_editing) {
+        if (action == SLAGizmoEventType::LeftDown) {
+            Vec3d pos;
+            Vec3d pos_world;
+            if (unproject_on_cut_plane(mouse_position.cast<double>(), pos, pos_world, false))
+                add_arbitrary_point(pos_world);
+            return true;
+        }
+        if (action == SLAGizmoEventType::RightDown) {
+            if (!m_arbitrary_path.empty()) {
+                m_arbitrary_path.pop_back();
+                update_arbitrary_polyline();
+                m_parent.set_as_dirty();
+            }
+            return true;
+        }
+    }
 
     if ( (m_hover_id < 0 || m_hover_id == CutPlane) && shift_down &&  ! m_connectors_editing &&
         (action == SLAGizmoEventType::LeftDown || action == SLAGizmoEventType::LeftUp || action == SLAGizmoEventType::Moving) )

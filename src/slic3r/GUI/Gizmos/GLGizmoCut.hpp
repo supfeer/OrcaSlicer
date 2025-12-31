@@ -75,6 +75,9 @@ class GLGizmoCut3D : public GLGizmoBase
 
     Vec3d           m_line_beg{ Vec3d::Zero() };
     Vec3d           m_line_end{ Vec3d::Zero() };
+    std::vector<Vec2d> m_arbitrary_path;
+    bool            m_arbitrary_editing{ false };
+    GLModel         m_arbitrary_polyline;
 
     Vec2d           m_ldown_mouse_position{ Vec2d::Zero() };
 
@@ -206,6 +209,7 @@ class GLGizmoCut3D : public GLGizmoBase
     enum class CutMode {
         cutPlanar
         , cutTongueAndGroove
+        , cutArbitrary
         //, cutGrig
         //,cutRadial
         //,cutModular
@@ -351,6 +355,12 @@ private:
     void apply_connectors_in_model(ModelObject* mo, int &dowels_count);
     bool cut_line_processing() const;
     void discard_cut_line_processing();
+    bool add_arbitrary_point(const Vec3d& world_pos);
+    void update_arbitrary_polyline();
+    void clear_arbitrary_path();
+    bool has_valid_arbitrary_path() const;
+    std::vector<Vec2d> get_arbitrary_mask(double band_width) const;
+    Vec3d arbitrary_point_to_world(const Vec2d& local) const;
 
     void apply_color_clip_plane_colors();
     void render_cut_plane();

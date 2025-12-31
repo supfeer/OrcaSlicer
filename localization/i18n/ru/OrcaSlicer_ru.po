@@ -435,6 +435,27 @@ msgstr "Плоский"
 msgid "Dovetail"
 msgstr "Ласточкин хвост"
 
+msgid "Arbitrary"
+msgstr "Произвольный"
+
+msgid "Polyline points"
+msgstr "Точки ломаной"
+
+msgid "Draw polyline"
+msgstr "Рисовать ломаную"
+
+msgid "Finish polyline"
+msgstr "Завершить ломаную"
+
+msgid "Reset polyline"
+msgstr "Сбросить ломаную"
+
+msgid "Left click on the cut plane adds points. Right click removes the last point."
+msgstr "Левая кнопка на плоскости реза добавляет точки. Правая кнопка удаляет последнюю точку."
+
+msgid "Define at least two points for the polyline cut."
+msgstr "Укажите минимум две точки для ломаной линии реза."
+
 msgid "Auto"
 msgstr "Авто"
 

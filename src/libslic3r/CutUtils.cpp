@@ -8,6 +8,8 @@
 #include "ObjectID.hpp"
 
 #include <boost/log/trivial.hpp>
+#include <array>
+#include <limits>
 
 namespace Slic3r {
 
@@ -63,8 +65,46 @@ static void add_cut_volume(TriangleMesh& mesh, ModelObject* object, const ModelV
     vol->cut_info = src_volume->cut_info;
 }
 
+static bool point_in_poly(const Vec2d& pt, const std::vector<Vec2d>& polygon)
+{
+    bool inside = false;
+    const size_t count = polygon.size();
+    for (size_t i = 0, j = count - 1; i < count; j = i++) {
+        const Vec2d& pi = polygon[i];
+        const Vec2d& pj = polygon[j];
+        const bool intersect = ((pi.y() > pt.y()) != (pj.y() > pt.y())) &&
+                               (pt.x() < (pj.x() - pi.x()) * (pt.y() - pi.y()) / (pj.y() - pi.y() + EPSILON) + pi.x());
+        if (intersect)
+            inside = !inside;
+    }
+    return inside;
+}
+
+static void append_triangle(indexed_triangle_set& its, const Vec3f& a, const Vec3f& b, const Vec3f& c)
+{
+    auto& vertices = its.vertices;
+    auto& facets   = its.indices;
+
+    const stl_vertex v1{ a.x(), a.y(), a.z() };
+    const stl_vertex v2{ b.x(), b.y(), b.z() };
+    const stl_vertex v3{ c.x(), c.y(), c.z() };
+
+    const uint32_t base_idx = static_cast<uint32_t>(vertices.size());
+    vertices.push_back(v1);
+    vertices.push_back(v2);
+    vertices.push_back(v3);
+    facets.push_back({ base_idx, base_idx + 1, base_idx + 2 });
+}
+
+static Vec3f intersect_at_plane(const Vec3f& a, const Vec3f& b)
+{
+    const float t = a.z() / (a.z() - b.z() + std::numeric_limits<float>::epsilon());
+    return a + t * (b - a);
+}
+
 static void process_volume_cut( ModelVolume* volume, const Transform3d& instance_matrix, const Transform3d& cut_matrix,
-                                ModelObjectCutAttributes attributes, TriangleMesh& upper_mesh, TriangleMesh& lower_mesh)
+                                ModelObjectCutAttributes attributes, TriangleMesh& upper_mesh, TriangleMesh& lower_mesh,
+                                const std::vector<Vec2d>* cut_mask)
 {
     const auto volume_matrix = volume->get_matrix();
 
@@ -76,8 +116,88 @@ static void process_volume_cut( ModelVolume* volume, const Transform3d& instance
     TriangleMesh mesh(volume->mesh());
     mesh.transform(invert_cut_matrix * instance_matrix * volume_matrix, true);
 
+    const bool use_mask = cut_mask && cut_mask->size() >= 3;
+
+    if (!use_mask) {
+        indexed_triangle_set upper_its, lower_its;
+        cut_mesh(mesh.its, 0.0f, &upper_its, &lower_its);
+        if (attributes.has(ModelObjectCutAttribute::KeepUpper))
+            upper_mesh = TriangleMesh(upper_its);
+        if (attributes.has(ModelObjectCutAttribute::KeepLower))
+            lower_mesh = TriangleMesh(lower_its);
+        return;
+    }
+
     indexed_triangle_set upper_its, lower_its;
-    cut_mesh(mesh.its, 0.0f, &upper_its, &lower_its);
+    const auto& vertices = mesh.its.vertices;
+    for (const stl_triangle_vertex_indices& facet : mesh.its.indices) {
+        const Vec3f p0 = vertices[facet[0]];
+        const Vec3f p1 = vertices[facet[1]];
+        const Vec3f p2 = vertices[facet[2]];
+
+        const Vec2d centroid((p0.x() + p1.x() + p2.x()) / 3.0, (p0.y() + p1.y() + p2.y()) / 3.0);
+        const bool inside = point_in_poly(centroid, *cut_mask);
+
+        auto add_unsplit = [&upper_its, &lower_its](const Vec3f& a, const Vec3f& b, const Vec3f& c, bool to_upper) {
+            if (to_upper)
+                append_triangle(upper_its, a, b, c);
+            else
+                append_triangle(lower_its, a, b, c);
+        };
+
+        const std::array<float, 3> z_vals { p0.z(), p1.z(), p2.z() };
+        const int above_count = int(z_vals[0] >= 0.f) + int(z_vals[1] >= 0.f) + int(z_vals[2] >= 0.f);
+
+        if (!inside) {
+            const float centroid_z = (z_vals[0] + z_vals[1] + z_vals[2]) / 3.f;
+            add_unsplit(p0, p1, p2, centroid_z >= 0.f);
+            continue;
+        }
+
+        if (above_count == 3) {
+            append_triangle(upper_its, p0, p1, p2);
+        }
+        else if (above_count == 0) {
+            append_triangle(lower_its, p0, p1, p2);
+        }
+        else if (above_count == 2) {
+            // Two vertices above, one below
+            const Vec3f* above_a = &p0;
+            const Vec3f* above_b = &p1;
+            const Vec3f* below = &p2;
+            if (p0.z() < 0.f) {
+                below   = &p0;
+                above_a = &p1;
+                above_b = &p2;
+            }
+            else if (p1.z() < 0.f) {
+                below   = &p1;
+                above_a = &p0;
+                above_b = &p2;
+            }
+
+            const Vec3f i1 = intersect_at_plane(*above_a, *below);
+            const Vec3f i2 = intersect_at_plane(*above_b, *below);
+
+            append_triangle(upper_its, *above_a, *above_b, i1);
+            append_triangle(upper_its, *above_b, i2, i1);
+            append_triangle(lower_its, *below, i1, i2);
+        }
+        else if (above_count == 1) {
+            // One vertex above, two below
+            const Vec3f* above = p0.z() >= 0.f ? &p0 : (p1.z() >= 0.f ? &p1 : &p2);
+            const Vec3f* below_a = (above == &p0) ? &p1 : &p0;
+            const Vec3f* below_b = (above == &p2) ? &p1 : &p2;
+
+            const Vec3f i1 = intersect_at_plane(*above, *below_a);
+            const Vec3f i2 = intersect_at_plane(*above, *below_b);
+
+            append_triangle(upper_its, *above, i1, i2);
+            append_triangle(lower_its, *below_a, *below_b, i1);
+            append_triangle(lower_its, i1, *below_b, i2);
+        }
+    }
+
     if (attributes.has(ModelObjectCutAttribute::KeepUpper))
         upper_mesh = TriangleMesh(upper_its);
     if (attributes.has(ModelObjectCutAttribute::KeepLower))
@@ -86,7 +206,7 @@ static void process_volume_cut( ModelVolume* volume, const Transform3d& instance
 
 static void process_connector_cut(  ModelVolume* volume, const Transform3d& instance_matrix, const Transform3d& cut_matrix,
                                     ModelObjectCutAttributes attributes, ModelObject* upper, ModelObject* lower,
-                                    std::vector<ModelObject*>& dowels)
+                                    std::vector<ModelObject*>& dowels, const std::vector<Vec2d>* cut_mask)
 {
     assert(volume->cut_info.is_connector);
     volume->cut_info.set_processed();
@@ -143,7 +263,7 @@ static void process_connector_cut(  ModelVolume* volume, const Transform3d& inst
 
         // Perform cut
         TriangleMesh upper_mesh, lower_mesh;
-        process_volume_cut(volume, Transform3d::Identity(), cut_matrix, attributes, upper_mesh, lower_mesh);
+        process_volume_cut(volume, Transform3d::Identity(), cut_matrix, attributes, upper_mesh, lower_mesh, cut_mask);
 
         // add small Z offset to better preview
         upper_mesh.translate((-0.05 * Vec3d::UnitZ()).cast<float>());
@@ -179,11 +299,11 @@ static void process_modifier_cut(ModelVolume* volume, const Transform3d& instanc
 }
 
 static void process_solid_part_cut(ModelVolume* volume, const Transform3d& instance_matrix, const Transform3d& cut_matrix,
-                            ModelObjectCutAttributes attributes, ModelObject* upper, ModelObject* lower)
+                            ModelObjectCutAttributes attributes, ModelObject* upper, ModelObject* lower, const std::vector<Vec2d>* cut_mask)
 {
     // Perform cut
     TriangleMesh upper_mesh, lower_mesh;
-    process_volume_cut(volume, instance_matrix, cut_matrix, attributes, upper_mesh, lower_mesh);
+    process_volume_cut(volume, instance_matrix, cut_matrix, attributes, upper_mesh, lower_mesh, cut_mask);
 
     // Add required cut parts to the objects
 
@@ -245,8 +365,9 @@ static void reset_instance_transformation(ModelObject* object, size_t src_instan
 
 
 Cut::Cut(const ModelObject* object, int instance, const Transform3d& cut_matrix,
-         ModelObjectCutAttributes attributes/*= ModelObjectCutAttribute::KeepUpper | ModelObjectCutAttribute::KeepLower | ModelObjectCutAttribute::KeepAsParts*/)
-    : m_instance(instance), m_cut_matrix(cut_matrix), m_attributes(attributes)
+         ModelObjectCutAttributes attributes/*= ModelObjectCutAttribute::KeepUpper | ModelObjectCutAttribute::KeepLower | ModelObjectCutAttribute::KeepAsParts*/,
+         std::vector<Vec2d> cut_mask /* = {} */)
+    : m_instance(instance), m_cut_matrix(cut_matrix), m_attributes(attributes), m_cut_mask(std::move(cut_mask))
 {
     m_model = Model();
     if (object)
@@ -319,6 +440,7 @@ const ModelObjectPtrs& Cut::perform_with_plane()
     const auto              instance_matrix = mo->instances[m_instance]->get_transformation().get_matrix_no_offset();
     const Transformation    cut_transformation = Transformation(m_cut_matrix);
     const Transform3d       inverse_cut_matrix = cut_transformation.get_rotation_matrix().inverse() * translation_transform(-1. * cut_transformation.get_offset());
+    const std::vector<Vec2d>* cut_mask_ptr = (m_cut_mask.size() >= 3) ? &m_cut_mask : nullptr;
 
     for (ModelVolume* volume : mo->volumes) {
         volume->reset_extra_facets();
@@ -327,10 +449,10 @@ const ModelObjectPtrs& Cut::perform_with_plane()
             if (volume->cut_info.is_processed)
                 process_modifier_cut(volume, instance_matrix, inverse_cut_matrix, m_attributes, upper, lower);
             else
-                process_connector_cut(volume, instance_matrix, m_cut_matrix, m_attributes, upper, lower, dowels);
+                process_connector_cut(volume, instance_matrix, m_cut_matrix, m_attributes, upper, lower, dowels, cut_mask_ptr);
         }
         else if (!volume->mesh().empty())
-            process_solid_part_cut(volume, instance_matrix, m_cut_matrix, m_attributes, upper, lower);
+            process_solid_part_cut(volume, instance_matrix, m_cut_matrix, m_attributes, upper, lower, cut_mask_ptr);
     }
 
     // Post-process cut parts
@@ -664,4 +786,3 @@ const ModelObjectPtrs& Cut::perform_with_groove(const Groove& groove, const Tran
 }
 
 } // namespace Slic3r
-
