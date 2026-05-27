@@ -125,6 +125,29 @@ class UndoValueUIManager
 
     EditValueUI m_edit_ui;
 
+    struct SaveValueUI {
+        const ScalableBitmap* save_bitmap{ nullptr };
+        const wxString*       save_tooltip{ nullptr };
+
+        bool set_bitmap(const ScalableBitmap* bmp) {
+            if (save_bitmap != bmp) {
+                save_bitmap = bmp;
+                return true;
+            }
+            return false;
+        }
+
+        bool set_tooltip(const wxString* tip) {
+            if (save_tooltip != tip) {
+                save_tooltip = tip;
+                return true;
+            }
+            return false;
+        }
+    };
+
+    SaveValueUI m_save_ui;
+
 public:
     UndoValueUIManager() {}
     ~UndoValueUIManager() {}
@@ -137,6 +160,8 @@ public:
 
     bool 	set_edit_bitmap(const ScalableBitmap* bmp)			{ return m_edit_ui.set_bitmap(bmp); }
     bool 	set_edit_tooltip(const wxString& tip)				{ return m_edit_ui.set_tooltip(tip); }
+    bool    set_save_bitmap(const ScalableBitmap* bmp)          { return m_save_ui.set_bitmap(bmp); }
+    bool    set_save_tooltip(const wxString* tip)               { return m_save_ui.set_tooltip(tip); }
 
     // ui items used for revert line value
     bool					has_undo_ui()			const { return m_undo_ui.undo_bitmap != nullptr; }
@@ -156,6 +181,11 @@ public:
     bool					has_edit_ui()			const { return !m_edit_ui.tooltip.IsEmpty(); }
     const wxBitmap*	        edit_bitmap()			const { return &m_edit_ui.bitmap->bmp(); }
     const wxString*			edit_tooltip()			const { return &m_edit_ui.tooltip; }
+
+    // Save field button
+    bool                    has_save_ui()           const { return m_save_ui.save_bitmap != nullptr; }
+    const wxBitmap*         save_bitmap()           const { return m_save_ui.save_bitmap ? &m_save_ui.save_bitmap->bmp() : nullptr; }
+    const wxString*         save_tooltip()          const { return m_save_ui.save_tooltip; }
 };
 
 class Field : public UndoValueUIManager {
@@ -187,6 +217,8 @@ public:
 	void			on_back_to_initial_value();
     /// Call the attached m_back_to_sys_value method. 
 	void			on_back_to_sys_value();
+    /// Call the attached m_save_to_preset method.
+    void            on_save_to_preset();
     /// Call the attached m_fn_edit_value method.
 	void			on_edit_value();
 
@@ -203,6 +235,7 @@ public:
 	/// Function object to store callback passed in from owning object.
 	t_back_to_init	m_back_to_initial_value{ nullptr };
 	t_back_to_init	m_back_to_sys_value{ nullptr };
+    t_back_to_init  m_save_to_preset{ nullptr };
 
 	/// Callback function to edit field value
 	t_back_to_init	m_fn_edit_value{ nullptr };

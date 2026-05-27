@@ -118,6 +118,7 @@ public:
 	std::function<DynamicPrintConfig()>	m_get_initial_config{ nullptr };
 	std::function<DynamicPrintConfig()>	m_get_sys_config{ nullptr };
 	std::function<bool()>	have_sys_config{ nullptr };
+    std::function<void(const std::string& opt_key)> m_save_value_to_preset{ nullptr };
 
     std::function<void(wxWindow* win)> rescale_extra_column_item { nullptr };
     std::function<void(wxWindow* win)> rescale_near_label_widget { nullptr };
@@ -238,6 +239,7 @@ protected:
 	virtual void		on_change_OG(const t_config_option_key& opt_id, const boost::any& value);
 	virtual void		back_to_initial_value(const std::string& opt_key) {}
 	virtual void		back_to_sys_value(const std::string& opt_key) {}
+    virtual void        save_to_preset(const std::string& opt_key) {}
 
 public:
 	static wxString		get_url(const std::string& path_end);
@@ -285,6 +287,7 @@ public:
 	void		on_change_OG(const t_config_option_key& opt_id, const boost::any& value) override;
 	void		back_to_initial_value(const std::string& opt_key) override;
 	void		back_to_sys_value(const std::string& opt_key) override;
+    void        save_to_preset(const std::string& opt_key) override;
 	void		back_to_config_value(const DynamicPrintConfig& config, const std::string& opt_key);
     void		on_kill_focus(const std::string& opt_key) override;
 	void		reload_config();

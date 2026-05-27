@@ -207,6 +207,7 @@ protected:
 	ScalableBitmap 		   *m_bmp_non_system;
 	// Bitmaps to be shown on the "Undo user changes" button next to each input field.
 	ScalableBitmap 			m_bmp_value_revert;
+    ScalableBitmap          m_bmp_value_save;
     // Bitmaps to be shown on the "Undo user changes" button next to each input field.
     ScalableBitmap 			m_bmp_edit_value;
 
@@ -237,6 +238,7 @@ protected:
 	// Tooltip text to be shown on the "Undo user changes" button next to each input field.
 	wxString			m_tt_white_bullet;
 	wxString			m_tt_value_revert;
+    wxString            m_tt_value_save;
 
 	int					m_icon_count;
 	std::map<std::string, size_t>	m_icon_index;		// Map from an icon file name to its index
@@ -363,6 +365,8 @@ public:
 	void		get_sys_and_mod_flags(const std::string& opt_key, bool& sys_page, bool& modified_page);
 	void		update_changed_tree_ui();
 	void		update_undo_buttons();
+    void        save_single_option(const std::string& opt_id);
+    bool        can_save_single_option() const;
 
 	void		on_roll_back_value(const bool to_sys = false);
 

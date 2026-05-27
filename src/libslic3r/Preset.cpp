@@ -1480,6 +1480,12 @@ PresetCollection& PresetCollection::operator=(const PresetCollection &rhs)
     return *this;
 }
 
+void PresetCollection::update_saved_preset_option(const std::string& opt_key)
+{
+    t_config_option_keys keys{ opt_key };
+    m_saved_preset.config.apply_only(m_edited_preset.config, keys, true);
+}
+
 void PresetCollection::reset(bool delete_files)
 {
     //BBS: add lock logic for sync preset in background

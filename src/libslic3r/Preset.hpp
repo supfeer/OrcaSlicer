@@ -759,6 +759,7 @@ public:
 //        { return dirty_options(&this->get_edited_preset(), &this->get_saved_preset(), /* deep_compare */ false); }
     // Copy edited preset into saved preset.
     void                        update_saved_preset_from_current_preset() { m_saved_preset = m_edited_preset; }
+    void                        update_saved_preset_option(const std::string& opt_key);
 
     // Return a sorted list of system preset names.
     // Used for validating the "inherits" flag when importing user's config bundles.

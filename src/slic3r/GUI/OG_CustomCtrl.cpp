@@ -159,19 +159,15 @@ wxPoint OG_CustomCtrl::get_pos(const Line& line, Field* field_in/* = nullptr*/)
     };
 
     auto add_buttons_width = [&h_pos, this] (int blinking_button_width) {
-#ifndef DISABLE_BLINKING
-#  ifndef DISABLE_UNDO_SYS
-        h_pos += 3 * blinking_button_width;
-#  else
-        h_pos += 2 * blinking_button_width;
-#  endif
-#else
-#  ifndef DISABLE_UNDO_SYS
-        h_pos += 2 * blinking_button_width;
-#  else
-        h_pos += 1 * blinking_button_width;
-#  endif
+        int buttons_count = 1;
+#ifndef DISABLE_UNDO_SYS
+        buttons_count += 1;
 #endif
+        buttons_count += 1;
+#ifndef DISABLE_BLINKING
+        buttons_count += 1;
+#endif
+        h_pos += buttons_count * blinking_button_width;
     };
 
     for (CtrlLine& ctrl_line : ctrl_lines) {
@@ -195,7 +191,10 @@ wxPoint OG_CustomCtrl::get_pos(const Line& line, Field* field_in/* = nullptr*/)
 
             if (line.widget) {
 #ifndef DISABLE_BLINKING
-                h_pos += (line.has_undo_ui() ? 3 : 1) * blinking_button_width;
+                int icons_count = line.has_undo_ui() ? 3 : 1;
+                if (line.has_save_ui())
+                    ++icons_count;
+                h_pos += icons_count * blinking_button_width;
 #endif
 
                 for (auto child : line.widget_sizer->GetChildren())
@@ -375,6 +374,8 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
 
         size_t undo_icons_cnt = line.rects_undo_icon.size();
         assert(line.rects_undo_icon.size() == line.rects_undo_to_sys_icon.size());
+        assert(line.rects_save_icon.size() == undo_icons_cnt);
+        assert(line.rects_save_icon.size() == undo_icons_cnt);
         const std::vector<Option>& option_set = line.og_line.get_options();
         for (size_t opt_idx = 0; opt_idx < undo_icons_cnt; opt_idx++) {
             const std::string& opt_key = option_set[opt_idx].opt_id;
@@ -390,6 +391,13 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
                     tooltip = *line.og_line.undo_to_sys_tooltip();
                 else if (Field* field = opt_group->get_field(opt_key))
                     tooltip = *field->undo_to_sys_tooltip();
+                break;
+            }
+            if (opt_idx < line.rects_save_icon.size() && !line.rects_save_icon[opt_idx].IsEmpty() && is_point_in_rect(pos, line.rects_save_icon[opt_idx])) {
+                if (line.og_line.has_save_ui() && line.og_line.save_tooltip())
+                    tooltip = *line.og_line.save_tooltip();
+                else if (Field* field = opt_group->get_field(opt_key); field && field->save_tooltip())
+                    tooltip = *field->save_tooltip();
                 break;
             }
             if (opt_idx < line.rects_edit_icon.size() && is_point_in_rect(pos, line.rects_edit_icon[opt_idx])) {
@@ -456,6 +464,14 @@ void OG_CustomCtrl::OnLeftDown(wxMouseEvent& event)
                 }
                 else if (Field* field = opt_group->get_field(opt_key))
                     field->on_back_to_sys_value();
+                event.Skip();
+                return;
+            }
+            if (opt_idx < line.rects_save_icon.size() && !line.rects_save_icon[opt_idx].IsEmpty() && is_point_in_rect(pos, line.rects_save_icon[opt_idx])) {
+                if (ConfigOptionsGroup* conf_OG = dynamic_cast<ConfigOptionsGroup*>(line.ctrl->opt_group))
+                    conf_OG->save_to_preset(opt_key);
+                else if (Field* field = opt_group->get_field(opt_key))
+                    field->on_save_to_preset();
                 event.Skip();
                 return;
             }
@@ -648,6 +664,7 @@ OG_CustomCtrl::CtrlLine::CtrlLine(  wxCoord         height,
     for (size_t i = 0; i < og_line.get_options().size(); i++) {
         rects_undo_icon.emplace_back(wxRect());
         rects_undo_to_sys_icon.emplace_back(wxRect());
+        rects_save_icon.emplace_back(wxRect());
     }
 }
 
@@ -777,7 +794,7 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord h_pos, wxCoord v_pos)
             // if (field)
             //  BBS: new layout
             const wxPoint pos = draw_act_bmps(dc, wxPoint(h_pos, v_pos), field->undo_to_sys_bitmap()->bmp(),
-                                              field->undo_bitmap()->bmp(), field->blink());
+                                              field->undo_bitmap()->bmp(), field->save_bitmap(), field->blink());
             if (field->has_edit_ui())
                 draw_edit_bmp(dc, pos, *field->edit_bitmap());
         }
@@ -834,7 +851,7 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord h_pos, wxCoord v_pos)
 
     auto draw_buttons = [&h_pos, &dc, &v_pos, this](Field* field, size_t bmp_rect_id = 0) {
         if (field && field->undo_to_sys_bitmap()) {
-            h_pos = draw_act_bmps(dc, wxPoint(h_pos, v_pos), field->undo_to_sys_bitmap()->bmp(), field->undo_bitmap()->bmp(), field->blink(), bmp_rect_id).x;
+            h_pos = draw_act_bmps(dc, wxPoint(h_pos, v_pos), field->undo_to_sys_bitmap()->bmp(), field->undo_bitmap()->bmp(), field->save_bitmap(), field->blink(), bmp_rect_id).x;
         }
 #ifndef DISABLE_BLINKING
         else if (field && !field->undo_to_sys_bitmap() && field->blink()) 
@@ -977,7 +994,7 @@ wxPoint OG_CustomCtrl::CtrlLine::draw_blinking_bmp(wxDC& dc, wxPoint pos, bool i
     return wxPoint(h_pos, v_pos);
 }
 
-wxPoint OG_CustomCtrl::CtrlLine::draw_act_bmps(wxDC& dc, wxPoint pos, const wxBitmap& bmp_undo_to_sys, const wxBitmap& bmp_undo, bool is_blinking, size_t rect_id)
+wxPoint OG_CustomCtrl::CtrlLine::draw_act_bmps(wxDC& dc, wxPoint pos, const wxBitmap& bmp_undo_to_sys, const wxBitmap& bmp_undo, const wxBitmap* bmp_save, bool is_blinking, size_t rect_id)
 {
 #ifndef DISABLE_BLINKING
     pos = draw_blinking_bmp(dc, pos, is_blinking);
@@ -1010,6 +1027,15 @@ wxPoint OG_CustomCtrl::CtrlLine::draw_act_bmps(wxDC& dc, wxPoint pos, const wxBi
     (og_line.undo_to_sys ? rects_undo_to_sys_icon[rect_id] : rects_undo_icon[rect_id]) = wxRect(h_pos, v_pos, bmp_dim2, bmp_dim2);
 
     h_pos += bmp_dim2 + ctrl->m_h_gap;
+
+    if (bmp_save) {
+        dc.DrawBitmap(*bmp_save, h_pos, v_pos);
+        int bmp_dim3 = get_bitmap_size(*bmp_save).GetWidth();
+        rects_save_icon[rect_id] = wxRect(h_pos, v_pos, bmp_dim3, bmp_dim3);
+        h_pos += bmp_dim3 + ctrl->m_h_gap;
+    } else if (rect_id < rects_save_icon.size()) {
+        rects_save_icon[rect_id] = wxRect();
+    }
 
     return wxPoint(h_pos, v_pos);
 }
